@@ -1,0 +1,17 @@
+services:
+  ip-monitor:
+    build: .
+    container_name: ip-monitor
+    restart: unless-stopped
+    volumes:
+      - ip_data:/data
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - CHECK_INTERVAL=${CHECK_INTERVAL:-300}
+      - HOSTINGER_DOMAIN=${HOSTINGER_DOMAIN}
+      - HOSTINGER_RECORD_NAME=${HOSTINGER_RECORD_NAME:-@}
+      - HOSTINGER_API_KEY=${HOSTINGER_API_KEY}
+
+volumes:
+  ip_data:
