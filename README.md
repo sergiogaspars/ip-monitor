@@ -55,13 +55,13 @@ CHECK_INTERVAL=300
 
 ```bash
 # Construir e iniciar el servicio
-docker-compose up -d
+docker compose up -d
 
 # Ver logs
-docker-compose logs -f ip-monitor
+docker compose logs -f ip-monitor
 
 # Detener el servicio
-docker-compose down
+docker compose down
 ```
 
 ### Con Docker
@@ -118,7 +118,7 @@ El servicio genera logs detallados que incluyen:
 
 ### El servicio no inicia
 - Verifica que las variables de entorno estén correctamente configuradas
-- Revisa los logs con `docker-compose logs ip-monitor`
+- Revisa los logs con `docker compose logs ip-monitor`
 
 ### No recibo notificaciones en Discord
 - Verifica que la URL del webhook sea correcta
