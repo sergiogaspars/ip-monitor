@@ -12,6 +12,10 @@ services:
       - HOSTINGER_DOMAIN=${HOSTINGER_DOMAIN}
       - HOSTINGER_RECORD_NAME=${HOSTINGER_RECORD_NAME:-@}
       - HOSTINGER_API_KEY=${HOSTINGER_API_KEY}
+      - DOKPLOY=${DOKPLOY:-false}
+      - DOKPLOY_RECORD_NAME=${DOKPLOY_RECORD_NAME:-dokploy}
+      - TEST_MODE=${TEST_MODE:-false}
+      - TEST_IP=${TEST_IP}
 
 volumes:
   ip_data:

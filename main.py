@@ -30,6 +30,14 @@ class IPMonitor:
         self.hostinger_domain = os.getenv('HOSTINGER_DOMAIN')
         self.hostinger_record_name = os.getenv('HOSTINGER_RECORD_NAME', '@')
         
+        # Configuración de Dokploy
+        self.dokploy_enabled = os.getenv('DOKPLOY', 'false').lower() in ('true', '1', 'yes')
+        self.dokploy_record_name = os.getenv('DOKPLOY_RECORD_NAME', 'dokploy')
+        
+        # Configuración de testing
+        self.test_mode = os.getenv('TEST_MODE', 'false').lower() in ('true', '1', 'yes')
+        self.test_ip = os.getenv('TEST_IP', '192.168.1.100')  # IP por defecto para testing
+        
         if not self.discord_webhook_url:
             raise ValueError("DISCORD_WEBHOOK_URL es requerido")
         
@@ -41,6 +49,12 @@ class IPMonitor:
     
     def get_public_ip_apify(self):
         """Obtiene la IP pública"""
+        # Si está en modo de testing, devolver la IP de testing
+        if self.test_mode:
+            logger.info(f"🧪 MODO TESTING: Devolviendo IP predefinida: {self.test_ip}")
+            return self.test_ip
+        
+        # Funcionamiento normal: obtener IP real desde la API
         try:
             response = requests.get('https://api.ipify.org?format=json', timeout=10)
             response.raise_for_status()
@@ -50,6 +64,15 @@ class IPMonitor:
         except Exception as e:
             logger.error(f"Error obteniendo IP: {e}")
             raise
+    
+    def set_test_ip(self, new_test_ip):
+        """Permite cambiar la IP de testing dinámicamente"""
+        if self.test_mode:
+            old_ip = self.test_ip
+            self.test_ip = new_test_ip
+            logger.info(f"🧪 TESTING: IP de testing cambiada de {old_ip} a {new_test_ip}")
+        else:
+            logger.warning("set_test_ip() llamado pero TEST_MODE no está habilitado")
     
     def load_last_ip(self):
         """Carga la última IP conocida desde archivo"""
@@ -96,19 +119,29 @@ class IPMonitor:
                         "inline": True
                     },
                     {
-                        "name": "Dominio",
+                        "name": "Dominio Principal",
                         "value": f"{self.hostinger_record_name}.{self.hostinger_domain}" if self.hostinger_domain else "N/A",
                         "inline": True
-                    },
-                    {
-                        "name": "Timestamp",
-                        "value": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "inline": False
                     }
-                ],
-                "footer": {
-                    "text": "IP Monitor"
-                }
+                ]
+            }
+            
+            # Agregar información de Dokploy si está habilitado
+            if self.dokploy_enabled:
+                embed["fields"].append({
+                    "name": "Dominio Dokploy",
+                    "value": f"{self.dokploy_record_name}.{self.hostinger_domain}",
+                    "inline": True
+                })
+            
+            embed["fields"].append({
+                "name": "Timestamp",
+                "value": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "inline": False
+            })
+            
+            embed["footer"] = {
+                "text": "IP Monitor"
             }
             
             payload = {
@@ -129,28 +162,51 @@ class IPMonitor:
     def send_startup_notification(self, current_ip):
         """Envía notificación de inicio del monitor"""
         try:
+            fields = [
+                {
+                    "name": "IP Actual",
+                    "value": current_ip,
+                    "inline": True
+                },
+                {
+                    "name": "Intervalo de Verificación",
+                    "value": f"{self.check_interval} segundos",
+                    "inline": True
+                }
+            ]
+            
+            # Agregar información de modo testing si está habilitado
+            if self.test_mode:
+                fields.append({
+                    "name": "🧪 Modo Testing",
+                    "value": f"✅ Activo (IP: {self.test_ip})",
+                    "inline": True
+                })
+            
+            # Agregar información de Dokploy si está habilitado
+            if self.dokploy_enabled:
+                fields.append({
+                    "name": "Dokploy",
+                    "value": f"✅ Habilitado ({self.dokploy_record_name}.{self.hostinger_domain})",
+                    "inline": True
+                })
+            
+            fields.append({
+                "name": "Timestamp",
+                "value": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "inline": False
+            })
+            
+            # Cambiar título y color si está en modo testing
+            title = "🧪 IP Monitor Iniciado (MODO TESTING)" if self.test_mode else "🚀 IP Monitor Iniciado"
+            color = 0xffaa00 if self.test_mode else 0x0099ff  # Naranja para testing, azul para normal
+            
             embed = {
-                "title": "🚀 IP Monitor Iniciado",
-                "color": 0x0099ff,  # Azul
-                "fields": [
-                    {
-                        "name": "IP Actual",
-                        "value": current_ip,
-                        "inline": True
-                    },
-                    {
-                        "name": "Intervalo de Verificación",
-                        "value": f"{self.check_interval} segundos",
-                        "inline": True
-                    },
-                    {
-                        "name": "Timestamp",
-                        "value": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "inline": False
-                    }
-                ],
+                "title": title,
+                "color": color,
+                "fields": fields,
                 "footer": {
-                    "text": "IP Monitor"
+                    "text": "IP Monitor" + (" - TESTING" if self.test_mode else "")
                 }
             }
             
@@ -313,6 +369,150 @@ class IPMonitor:
             self.send_hostinger_error_notification(None, str(e), None, {}, new_ip)
             return False, str(e)
     
+    def update_dokploy_dns(self, new_ip):
+        """Actualiza el registro A de Dokploy en Hostinger con la nueva IP"""
+        try:
+            url = f"https://developers.hostinger.com/api/dns/v1/zones/{self.hostinger_domain}"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.hostinger_api_key}"
+            }
+            
+            payload = {
+                "overwrite": True,
+                "zone": [
+                    {
+                        "name": self.dokploy_record_name,
+                        "records": [
+                            {
+                                "content": new_ip
+                            }
+                        ],
+                        "ttl": 300,
+                        "type": "A"
+                    }
+                ]
+            }
+            
+            response = requests.put(url, headers=headers, json=payload, timeout=30)
+            
+            if response.status_code == 200:
+                logger.info(f"Registro DNS Dokploy actualizado exitosamente: {self.dokploy_record_name}.{self.hostinger_domain} -> {new_ip}")
+                return True, None
+            else:
+                # Manejar diferentes tipos de errores
+                error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
+                error_message = error_data.get('message', f'Error HTTP {response.status_code}')
+                correlation_id = error_data.get('correlation_id', 'N/A')
+                errors = error_data.get('errors', {})
+                
+                logger.error(f"Error {response.status_code} actualizando DNS Dokploy en Hostinger: {error_message}")
+                if correlation_id != 'N/A':
+                    logger.error(f"Correlation ID: {correlation_id}")
+                
+                # Enviar notificación de error a Discord con contexto de Dokploy
+                self.send_dokploy_error_notification(response.status_code, error_message, correlation_id, errors, new_ip)
+                
+                return False, error_message
+            
+        except Exception as e:
+            logger.error(f"Error de conexión actualizando DNS Dokploy en Hostinger: {e}")
+            self.send_dokploy_error_notification(None, str(e), None, {}, new_ip)
+            return False, str(e)
+    
+    def send_dokploy_error_notification(self, status_code, error_message, correlation_id, errors, attempted_ip):
+        """Envía notificación a Discord sobre errores en la API de Hostinger para Dokploy"""
+        try:
+            # Determinar color y título según el tipo de error
+            if status_code == 401:
+                color = 0xff0000  # Rojo - Error de autenticación
+                title = "🔒 Error de Autenticación en Hostinger (Dokploy)"
+            elif status_code == 422:
+                color = 0xff9900  # Naranja - Error de validación
+                title = "⚠️ Error de Validación en Hostinger (Dokploy)"
+            elif status_code == 500:
+                color = 0xff0000  # Rojo - Error del servidor
+                title = "💥 Error del Servidor en Hostinger (Dokploy)"
+            else:
+                color = 0xff0000  # Rojo - Error genérico
+                title = "❌ Error en API de Hostinger (Dokploy)"
+            
+            fields = [
+                {
+                    "name": "IP Intentada",
+                    "value": attempted_ip,
+                    "inline": True
+                },
+                {
+                    "name": "Registro Dokploy",
+                    "value": f"{self.dokploy_record_name}.{self.hostinger_domain}",
+                    "inline": True
+                },
+                {
+                    "name": "Código de Estado",
+                    "value": str(status_code) if status_code else "Conexión Failed",
+                    "inline": True
+                },
+                {
+                    "name": "Mensaje de Error",
+                    "value": error_message,
+                    "inline": False
+                }
+            ]
+            
+            # Agregar correlation ID si existe
+            if correlation_id:
+                fields.append({
+                    "name": "Correlation ID",
+                    "value": correlation_id,
+                    "inline": True
+                })
+            
+            # Agregar detalles de errores de validación si existen
+            if errors:
+                error_details = []
+                for field, field_errors in errors.items():
+                    error_details.append(f"**{field}:**")
+                    for error in field_errors:
+                        error_details.append(f"  • {error}")
+                
+                if error_details:
+                    fields.append({
+                        "name": "Detalles del Error",
+                        "value": "\n".join(error_details)[:1024],  # Limitar a 1024 caracteres
+                        "inline": False
+                    })
+            
+            fields.append({
+                "name": "Timestamp",
+                "value": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "inline": False
+            })
+            
+            embed = {
+                "title": title,
+                "color": color,
+                "fields": fields,
+                "footer": {
+                    "text": "IP Monitor - Error en Hostinger (Dokploy)"
+                }
+            }
+            
+            payload = {
+                "embeds": [embed]
+            }
+            
+            response = requests.post(
+                self.discord_webhook_url,
+                json=payload,
+                timeout=10
+            )
+            response.raise_for_status()
+            logger.info("Notificación de error de Hostinger (Dokploy) enviada a Discord")
+            
+        except Exception as e:
+            logger.error(f"Error enviando notificación de error de Hostinger (Dokploy) a Discord: {e}")
+    
     def run(self):
         """Ejecuta el monitor principal"""
         logger.info("Iniciando IP Monitor...")
@@ -325,7 +525,7 @@ class IPMonitor:
             return
         
         # Cargar última IP conocida
-        last_ip, last_timestamp = self.load_last_ip()
+        last_ip, _ = self.load_last_ip()
         
         # Enviar notificación de inicio
         self.send_startup_notification(current_ip)
@@ -341,6 +541,14 @@ class IPMonitor:
                     logger.info("DNS actualizado exitosamente en Hostinger")
                 else:
                     logger.error(f"Error actualizando DNS en Hostinger: {error_msg}")
+                
+                # Actualizar DNS de Dokploy si está habilitado
+                if self.dokploy_enabled:
+                    dokploy_success, dokploy_error_msg = self.update_dokploy_dns(current_ip)
+                    if dokploy_success:
+                        logger.info("DNS Dokploy actualizado exitosamente en Hostinger")
+                    else:
+                        logger.error(f"Error actualizando DNS Dokploy en Hostinger: {dokploy_error_msg}")
             else:
                 logger.info(f"Primera ejecución, IP inicial: {current_ip}")
                 # Actualizar DNS en Hostinger en la primera ejecución
@@ -349,6 +557,14 @@ class IPMonitor:
                     logger.info("DNS inicializado exitosamente en Hostinger")
                 else:
                     logger.error(f"Error inicializando DNS en Hostinger: {error_msg}")
+                
+                # Actualizar DNS de Dokploy si está habilitado
+                if self.dokploy_enabled:
+                    dokploy_success, dokploy_error_msg = self.update_dokploy_dns(current_ip)
+                    if dokploy_success:
+                        logger.info("DNS Dokploy inicializado exitosamente en Hostinger")
+                    else:
+                        logger.error(f"Error inicializando DNS Dokploy en Hostinger: {dokploy_error_msg}")
             
             self.save_current_ip(current_ip)
         else:
@@ -370,6 +586,14 @@ class IPMonitor:
                         logger.info("DNS actualizado exitosamente en Hostinger")
                     else:
                         logger.error(f"Error actualizando DNS en Hostinger: {error_msg}")
+                    
+                    # Actualizar DNS de Dokploy si está habilitado
+                    if self.dokploy_enabled:
+                        dokploy_success, dokploy_error_msg = self.update_dokploy_dns(new_ip)
+                        if dokploy_success:
+                            logger.info("DNS Dokploy actualizado exitosamente en Hostinger")
+                        else:
+                            logger.error(f"Error actualizando DNS Dokploy en Hostinger: {dokploy_error_msg}")
                     
                     self.save_current_ip(new_ip)
                     current_ip = new_ip
