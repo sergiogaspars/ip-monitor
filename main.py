@@ -48,22 +48,91 @@ class IPMonitor:
             raise ValueError("HOSTINGER_API_KEY es requerido")
     
     def get_public_ip_apify(self):
-        """Obtiene la IP pública"""
+        """Obtiene la IP pública usando múltiples fuentes con failover automático"""
         # Si está en modo de testing, devolver la IP de testing
         if self.test_mode:
             logger.info(f"🧪 MODO TESTING: Devolviendo IP predefinida: {self.test_ip}")
             return self.test_ip
         
-        # Funcionamiento normal: obtener IP real desde la API
+        # Lista de APIs para obtener la IP pública (en orden de prioridad)
+        ip_sources = [
+            {
+                'name': 'ipify',
+                'url': 'https://api.ipify.org?format=json',
+                'json_key': 'ip',
+                'timeout': 10
+            },
+            {
+                'name': 'amazonaws',
+                'url': 'http://checkip.amazonaws.com/',
+                'json_key': None,  # Devuelve texto plano
+                'timeout': 10
+            },
+            {
+                'name': 'whatismyip',
+                'url': 'https://whatismyip.akamai.com/',
+                'json_key': None,  # Devuelve texto plano
+                'timeout': 10
+            }
+        ]
+        
+        last_error = None
+        
+        # Intentar cada fuente hasta que una funcione
+        for source in ip_sources:
+            try:
+                logger.info(f"🔍 Intentando obtener IP desde: {source['name']}")
+                response = requests.get(source['url'], timeout=source['timeout'])
+                response.raise_for_status()
+                
+                # Parsear respuesta según el tipo
+                if source['json_key']:
+                    # Respuesta JSON
+                    ip = response.json().get(source['json_key'])
+                else:
+                    # Respuesta de texto plano
+                    ip = response.text.strip()
+                
+                # Validar que la IP sea válida
+                if self._is_valid_ipv4(ip):
+                    logger.info(f"✅ IP obtenida exitosamente desde {source['name']}: {ip}")
+                    return ip
+                else:
+                    logger.warning(f"⚠️ IP inválida recibida desde {source['name']}: {ip}")
+                    continue
+                    
+            except Exception as e:
+                logger.warning(f"❌ Error obteniendo IP desde {source['name']}: {e}")
+                last_error = e
+                continue
+        
+        # Si llegamos aquí, todas las fuentes fallaron
+        logger.error("🚨 TODAS las fuentes de IP fallaron")
+        raise Exception(f"No se pudo obtener IP pública desde ninguna fuente. Último error: {last_error}")
+    
+    def _is_valid_ipv4(self, ip):
+        """Valida si una cadena es una dirección IPv4 válida"""
         try:
-            response = requests.get('https://api.ipify.org?format=json', timeout=10)
-            response.raise_for_status()
-            ip = response.json().get('ip')
-            logger.info(f"IP obtenida: {ip}")
-            return ip
-        except Exception as e:
-            logger.error(f"Error obteniendo IP: {e}")
-            raise
+            if not ip or not isinstance(ip, str):
+                return False
+            
+            # Dividir por puntos
+            parts = ip.split('.')
+            if len(parts) != 4:
+                return False
+            
+            # Validar cada parte
+            for part in parts:
+                num = int(part)
+                if num < 0 or num > 255:
+                    return False
+                # No permitir ceros a la izquierda (excepto "0")
+                if len(part) > 1 and part[0] == '0':
+                    return False
+            
+            return True
+        except (ValueError, AttributeError):
+            return False
     
     def set_test_ip(self, new_test_ip):
         """Permite cambiar la IP de testing dinámicamente"""
