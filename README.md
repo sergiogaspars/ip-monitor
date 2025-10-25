@@ -1,11 +1,11 @@
 # IP Monitor
 
-Un servicio Dockerizado que monitorea cambios en la dirección IP pública usando Apify y envía notificaciones a Discord cuando detecta cambios.
+Un servicio Dockerizado que monitorea cambios en la dirección IP pública usando múltiples fuentes y puede enviar notificaciones a Discord cuando detecta cambios.
 
 ## Características
 
-- 🔍 Monitoreo continuo de la IP pública usando la API de Apify
-- 📢 Notificaciones automáticas a Discord cuando cambia la IP
+- 🔍 Monitoreo continuo de la IP pública usando múltiples APIs con failover automático
+- 📢 Notificaciones automáticas a Discord cuando cambia la IP (opcional)
 - 🌐 Actualización automática del registro DNS A en Hostinger
 - 💾 Persistencia de datos entre reinicios
 - 🐳 Completamente dockerizado
@@ -18,19 +18,19 @@ Un servicio Dockerizado que monitorea cambios en la dirección IP pública usand
 Crea un archivo `.env` en el directorio del proyecto con las siguientes variables:
 
 ```env
-# URL del webhook de Discord
-DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/your_webhook_url
-
-# Configuración de Hostinger DNS
+# Configuración de Hostinger DNS (REQUERIDO)
 HOSTINGER_DOMAIN=tudominio.com
-HOSTINGER_RECORD_NAME=www
+HOSTINGER_RECORD_NAME=@
 HOSTINGER_API_KEY=tu_api_key_de_hostinger
+
+# URL del webhook de Discord (OPCIONAL - comentar si no se quiere usar)
+# DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/your_webhook_url
 
 # Intervalo de verificación en segundos (opcional, por defecto 300 = 5 minutos)
 CHECK_INTERVAL=300
 ```
 
-### Configurar Hostinger DNS
+### Configurar Hostinger DNS (Requerido)
 
 1. Ve a tu panel de control de Hostinger
 2. Ve a "Zona DNS" o "DNS Zone" 
@@ -40,8 +40,9 @@ CHECK_INTERVAL=300
    - `HOSTINGER_RECORD_NAME`: El nombre del registro A (ej: `www`, `@`, `subdomain`)
    - `HOSTINGER_API_KEY`: Tu API key de Hostinger
 
+### Configurar Webhook de Discord (Opcional)
 
-### Configurar Webhook de Discord
+> **Nota:** Discord es completamente opcional. Si no configuras `DISCORD_WEBHOOK_URL`, el programa funcionará normalmente pero sin enviar notificaciones a Discord.
 
 1. Ve a tu servidor de Discord
 2. Ve a la configuración del canal donde quieres recibir notificaciones

@@ -38,8 +38,11 @@ class IPMonitor:
         self.test_mode = os.getenv('TEST_MODE', 'false').lower() in ('true', '1', 'yes')
         self.test_ip = os.getenv('TEST_IP', '192.168.1.100')  # IP por defecto para testing
         
-        if not self.discord_webhook_url:
-            raise ValueError("DISCORD_WEBHOOK_URL es requerido")
+        # Discord es opcional - solo validar si se proporciona la URL
+        if self.discord_webhook_url:
+            logger.info("✅ Discord habilitado - se enviarán notificaciones")
+        else:
+            logger.warning("⚠️ Discord no configurado - no se enviarán notificaciones a Discord")
         
         if not self.hostinger_domain:
             raise ValueError("HOSTINGER_DOMAIN es requerido")
@@ -172,6 +175,10 @@ class IPMonitor:
     
     def send_discord_notification(self, old_ip, new_ip):
         """Envía notificación a Discord sobre el cambio de IP"""
+        if not self.discord_webhook_url:
+            logger.info("Discord no configurado - omitiendo notificación de cambio de IP")
+            return
+            
         try:
             embed = {
                 "title": "🔄 Cambio de IP Detectado",
@@ -230,6 +237,10 @@ class IPMonitor:
     
     def send_startup_notification(self, current_ip):
         """Envía notificación de inicio del monitor"""
+        if not self.discord_webhook_url:
+            logger.info("Discord no configurado - omitiendo notificación de inicio")
+            return
+            
         try:
             fields = [
                 {
@@ -296,6 +307,10 @@ class IPMonitor:
     
     def send_hostinger_error_notification(self, status_code, error_message, correlation_id, errors, attempted_ip):
         """Envía notificación a Discord sobre errores en la API de Hostinger"""
+        if not self.discord_webhook_url:
+            logger.info("Discord no configurado - omitiendo notificación de error de Hostinger")
+            return
+            
         try:
             # Determinar color y título según el tipo de error
             if status_code == 401:
